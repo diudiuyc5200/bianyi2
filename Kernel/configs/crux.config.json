@@ -11,7 +11,7 @@
       {
         "name": "proton-clang",
         "repo": "https://gitlab.com/LeCmnGend/proton-clang.git",
-        "branch": "clang-16",
+        "branch": "clang-18",
         "binaryEnv": ["./bin"]
       }
     ],
