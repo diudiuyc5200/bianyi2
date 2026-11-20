@@ -2,10 +2,10 @@
   {
     "kernelSource": {
       "name": "crux-marisa",
-      "repo": "https://github.com/diudiuyc5200/1121.git",
-      "branch": "16.2",
-      "device": "crux",
-      "defconfig": "crux_defconfig"
+      "repo": "https://github.com/diudiuyc5200/raphael2.git",
+      "branch": "zundamon-evo-public",
+      "device": "raphael",
+      "defconfig": "raphael_defconfig"
     },
     "toolchains": [
       {
