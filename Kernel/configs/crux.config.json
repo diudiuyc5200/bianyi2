@@ -2,8 +2,8 @@
   {
     "kernelSource": {
       "name": "crux-marisa",
-      "repo": "https://github.com/diudiuyc5200/0624.git",
-      "branch": "336",
+      "repo": "https://github.com/diudiuyc5200/1121.git",
+      "branch": "16.2",
       "device": "crux",
       "defconfig": "crux_defconfig"
     },
@@ -11,7 +11,7 @@
       {
         "name": "proton-clang",
         "repo": "https://gitlab.com/LeCmnGend/proton-clang.git",
-        "branch": "clang-16",
+        "branch": "clang-13",
         "binaryEnv": ["./bin"]
       }
     ],
@@ -39,7 +39,7 @@
       "use": false,
       "release": true
     },
-    "enableKernelSU": true,
+    "enableKernelSU": false,
     "enableLXC": false,
     "enableBBG": false
   }
