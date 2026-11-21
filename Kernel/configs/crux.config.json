@@ -2,16 +2,16 @@
   {
     "kernelSource": {
       "name": "crux-marisa",
-      "repo": "https://github.com/diudiuyc5200/raphael2.git",
-      "branch": "zundamon-evo-public",
-      "device": "raphael",
-      "defconfig": "raphael_defconfig"
+      "repo": "https://github.com/diudiuyc5200/crux068.git",
+      "branch": "stable",
+      "device": "crux",
+      "defconfig": "crux_defconfig"
     },
     "toolchains": [
       {
         "name": "proton-clang",
         "repo": "https://gitlab.com/LeCmnGend/proton-clang.git",
-        "branch": "clang-18",
+        "branch": "clang-16",
         "binaryEnv": ["./bin"]
       }
     ],
