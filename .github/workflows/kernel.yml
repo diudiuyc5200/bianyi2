@@ -1,5 +1,4 @@
 name: Build kernels
-
 on:
   push:
     paths:
@@ -7,7 +6,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "14 13 * * 5"
-
 jobs:
   Read-configuration:
     name: 🐂 Parse *.config.json
@@ -16,19 +14,14 @@ jobs:
       CONFIGS: ${{ steps.generate-matrix.outputs.CONFIGS }}
       BUILD_DATE: ${{ steps.generate-builddate.outputs.BUILDDATE }}
     steps:
-      # This action checks-out your CONFIGSitory under $GITHUB_WORKSPACE, so your workflow can access it.
       - name: 😄 Checkout
         uses: actions/checkout@v4
-
-      # Match the configuration files in the CONFIGS directory, read the contents and merge them into an array.
       - name: 😆 Generate Matrix
         id: generate-matrix
         run: |
           echo "CONFIGS<<EOF" >> $GITHUB_OUTPUT
           jq -s '[.[][]]' Kernel/configs/*.config.json >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
-      # Set compile time.
       - name: ⏰ Set builddate
         id: generate-builddate
         run: echo "BUILDDATE=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
@@ -44,95 +37,75 @@ jobs:
       matrix:
         CONFIG: ${{ fromJSON(needs.Read-configuration.outputs.CONFIGS) }}
     env:
-      # Basic configuration
       WORKSPACE: ${{ github.workspace }}
       BUILD_DATE: "${{ needs.Read-configuration.outputs.BUILD_DATE }}"
-
-      # Kernel source configuration
       KERNEL_NAME: ${{ matrix.CONFIG.kernelSource.name }}
       KERNEL_REPO: ${{ matrix.CONFIG.kernelSource.repo }}
       KERNEL_BRANCH: ${{ matrix.CONFIG.kernelSource.branch }}
       KERNEL_DEVICE: ${{ matrix.CONFIG.kernelSource.device }}
       KERNEL_DEFCONFIG_PATH: ${{ matrix.CONFIG.kernelSource.defconfig }}
-
-      # Whether to use ccache to speed up compilation
       ENABLE_CCACHE: ${{ matrix.CONFIG.enableCcache }}
-
-      # Whether to use ANYKERNEL3 packaged flash package
       USE_ANYKERNEL3: ${{ matrix.CONFIG.AnyKernel3.use }}
-
-      # Whether to publish
       CONFIRM_RELEASE: ${{ matrix.CONFIG.AnyKernel3.release }}
-
-      # Whether to enable KernelSU
       ENABLE_KERNELSU: ${{ matrix.CONFIG.enableKernelSU }}
-
-      # Whether to enable LXC docker
       ENABLE_LXC: ${{ matrix.CONFIG.enableLXC }}
-
-      # Whether to enable BBG
       ENABLE_BBG: ${{ matrix.CONFIG.enableBBG }}
-
-      # Set output & ccache directory
       OUT_DIR: "${{ github.workspace }}/out"
       CCACHE_DIR: "${{ github.workspace }}/ccache"
     steps:
-      # Set swap space
       - name: 📐 Set swap to 10G
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
 
-      # This action checks-out your CONFIGSitory under $GITHUB_WORKSPACE, so your workflow can access it.
       - name: 😄 Checkout
         uses: actions/checkout@v4
 
-      # Install prerequisites for Ubuntu
       - name: ⭐ Install prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y curl git ftp lftp wget libarchive-tools ccache python3
-          sudo apt-get install -y pngcrush schedtool dpkg-dev liblz4-tool make optipng maven device-tree-compiler 
+          sudo apt-get install -y pngcrush schedtool dpkg-dev liblz4-tool make optipng maven device-tree-compiler
           sudo apt-get install -y libc6-dev-i386 libx11-dev lib32z-dev libgl1-mesa-dev xsltproc
           sudo apt-get install -y libxml2-utils libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools lzop flex tree
           sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libfl-dev
-          sudo apt-get install -y pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl 
+          sudo apt-get install -y pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl
           sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar llvm g++-multilib bison gperf zlib1g-dev automake
 
-      # Initialize ccache
       - name: 🚄 Setup ccache
         if: ${{ env.ENABLE_CCACHE == 'true' }}
         id: hash
         run: |
-          # Create output directory
-          mkdir -p ${{ env.OUT_DIR }}
-
-          # Initialize ccache
-          ccache -o compression=false -o cache_dir=${{ env.CCACHE_DIR }}
-
-          # Generate configuration's hash
-          echo $(echo -n '${{ toJSON(matrix.config) }}' | openssl dgst -sha1 | awk '{print $2}')
+          mkdir -p ${{ env.CCACHE_DIR }}
+          ccache -o compression=false
+          ccache -o cache_dir=${{ env.CCACHE_DIR }}
+          ccache -o max_size=5G
+          ccache -o compiler_check=content
+          ccache -o hash_dir=false
           echo "HASH=$(echo -n '${{ toJSON(matrix.config) }}' | openssl dgst -sha1 | awk '{print $2}')" >> $GITHUB_OUTPUT
 
-      - name: 🚅 Cache ccache & output
+      - name: 🚅 Cache ccache
         env:
           HASH: ${{ steps.hash.outputs.HASH }}
         if: ${{ env.ENABLE_CCACHE == 'true' }}
         uses: actions/cache@v3
         with:
-          path: |
-            ${{ env.OUT_DIR }}
-            ${{ env.CCACHE_DIR }}
-          key: cache-${{ env.KERNEL_NAME }}-${{env.HASH}}-${{ env.BUILD_DATE }}
+          key: cache-${{ env.KERNEL_NAME }}-${{env.HASH}}
           restore-keys: |
-            cache-${{ env.KERNEL_NAME }}-${{env.HASH}}-${{ env.BUILD_DATE }}
-            cache-${{ env.KERNEL_NAME }}-${{env.HASH}}-
             cache-${{ env.KERNEL_NAME }}-
+          path: ${{ env.CCACHE_DIR }}
+
+      - name: 🔧 Export ccache env
+        if: ${{ env.ENABLE_CCACHE == 'true' }}
+        run: |
+          echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
+          echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
+          echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
+          echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
 
       - name: 🌟 Clone kernel source => (${{ env.KERNEL_REPO }})
         run: |
           git clone --recursive --depth=1 -j $(nproc) --branch ${{ env.KERNEL_BRANCH }} ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }}
-          # tree ${{ env.KERNEL_NAME }}
 
       - name: 💫 Get toolchains
         env:
@@ -140,22 +113,14 @@ jobs:
         run: |
           toolchains_num="$(echo $toolchains | jq 'length')"
           echo "🤔 There is $toolchains_num defined toolchains."
-
           for ((i=0;i<toolchains_num;i++)); do
             toolchain=$(echo $toolchains | jq -r ".[$i]")
-
             toolchain_name=$(echo $toolchain | jq -r ".name")
-            
-            # From archive
+
             if echo $toolchain | jq -e 'has("url")' > /dev/null; then
-              # If from archive
               toolchain_url=$(echo $toolchain | jq -r ".url")
               mkdir -p '$toolchain_name'
-
-              # Download archive
               wget "$toolchain_url"
-
-              # Get filename
               filename="${toolchain_url##*/}"
               case "$filename" in
                 *.zip)
@@ -174,19 +139,14 @@ jobs:
                   echo "unknown file type: $filename"
                   ;;
               esac
-              # Delete file to avoid duplicate name conflicts 
               rm $filename
-
               echo "🤔 Download $toolchain_name => ($toolchain_url)"
             else
-              # If from git
               toolchain_repo=$(echo $toolchain | jq -r ".repo")
               toolchain_branch=$(echo $toolchain | jq -r ".branch")
               git clone --recursive --depth=1 -j $(nproc) --branch $toolchain_branch $toolchain_repo $toolchain_name
-
               echo "🤔 Clone $toolchain_name => ($toolchain_repo)"
             fi
-
             jq -r ".binaryEnv[] | tostring" <<< "$toolchain" | while read -r subPath; do
               echo "${{ env.WORKSPACE }}/$toolchain_name/$subPath" >> $GITHUB_PATH
             done
@@ -199,18 +159,14 @@ jobs:
           THREAD: $(nproc --all)
         run: |
           echo "🤔 PATH Variable: $PATH"
-
           ARCH=$(echo $PARAMS | jq -r ".ARCH")
           CC=$(echo $PARAMS | jq -r ".CC")
-
           args="-j${{ env.THREAD }} O=${{ env.OUT_DIR }} ARCH=$ARCH"
           if [ -n "$CC" ]; then
-
             if [[ "$CC" == *"/"* ]]; then
               CC=${{ env.WORKSPACE }}/$CC
             fi
-
-            if [ ${{ env.ENABLE_CCACHE }} = true ]; then
+            if [ "${{ env.ENABLE_CCACHE }}" = true ]; then
               args="$args CC=\"ccache $CC\""
             else
               args="$args CC=$CC"
@@ -224,11 +180,15 @@ jobs:
             fi
             args="$args $key=$value"
           done < <(jq -r '.externalCommands | to_entries[] | "\(.key)=\(.value)"' <<< "$PARAMS")
-
           echo "ARCH=$ARCH" >> $GITHUB_OUTPUT
           echo "ARGS=$args" >> $GITHUB_OUTPUT
-
           echo "🤔 $args"
+
+      - name: 📊 ccache stats before build
+        if: ${{ env.ENABLE_CCACHE == 'true' }}
+        run: |
+          ccache -z
+          ccache -s
 
       - name: 😋 Setup KernelSU
         working-directory: ${{ env.KERNEL_NAME }}
@@ -236,19 +196,13 @@ jobs:
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
         if: ${{ env.ENABLE_KERNELSU == 'true' }}
         run: |
-          # Delete old KernelSU
           if [ -d "./KernelSU" ]; then
             rm -rf "./KernelSU"
           fi
           if [ -d "./drivers/kernelsu" ]; then
             rm -rf "./drivers/kernelsu"
           fi
-
-          # Apply new KernelSU patches
           curl -LSs "https://raw.githubusercontent.com/diudiuyc5200/baka414/main/kernel/setup.sh" | bash
-
-          # Add KernelSU configurations if not already present
-
           cat arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
 
       - name: 😋 Setup LXC docker
@@ -258,13 +212,10 @@ jobs:
           ADD_DEFCONFIG: ${{ env.WORKSPACE }}/Kernel/LXC/LXC_defconfig
         if: ${{ env.ENABLE_LXC == 'true' }}
         run: |
-          # Add configuration
           for config in $(cat ${{ env.ADD_DEFCONFIG }})
           do
             echo $config >> ${{ env.DEFCONFIG }}
           done
-
-          # Apply patch
           if [ -f kernel/cgroup.c ]; then
             row=$(sed -n -e '/^static int cgroup_add_file/=' kernel/cgroup.c)
             touch /tmp/tmp.txt
@@ -300,19 +251,13 @@ jobs:
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
         if: ${{ env.ENABLE_BBG == 'true' }}
         run: |
-          # Delete old BBG
           if [ -d "./Baseband-guard" ]; then
             rm -rf "./Baseband-guard"
           fi
-
-          # Apply new BBG patches
           git clone https://github.com/vc-teahouse/Baseband-guard.git Baseband-guard
-
-          # Add BBG configurations if not already present
           if ! grep -q "CONFIG_BBG=" "arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}"; then
             echo -e "CONFIG_BBG=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           fi
-          
           cat arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
 
       - name: 👍 Start building the kernel
@@ -325,7 +270,11 @@ jobs:
           export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
           make ${{ env.ARGS }} ${{ env.KERNEL_DEFCONFIG_PATH }}
           make ${{ env.ARGS }}
-          # tree ${{ env.OUT_DIR }}
+
+      - name: 📊 ccache stats after build
+        if: ${{ env.ENABLE_CCACHE == 'true' }}
+        run: |
+          ccache -s
 
       - name: 💛 Upload Image
         uses: actions/upload-artifact@v4
@@ -406,8 +355,6 @@ jobs:
             sed -i 's/is_slot_device=0;/is_slot_device=auto;/g' AnyKernel3/anykernel.sh
             echo "🤔 Use origin Anykernel3 => (https://github.com/osm0sis/AnyKernel3)"
           fi
-
-
           if [ -e "${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz-dtb" ]; then
             cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz-dtb ./AnyKernel3/
           else
@@ -424,7 +371,6 @@ jobs:
               cp -f ${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img ./AnyKernel3/
             fi
           fi
-
           cd AnyKernel3/
           zip -q -r "${{ env.ANYKERNEL3_FILE }}.zip" *
 
