@@ -5,7 +5,7 @@
       "repo": "https://github.com/diudiuyc5200/0602-2.git",
       "branch": "336",
       "device": "crux",
-      "defconfig": "crux_test_defconfig"
+      "defconfig": "crux_defconfig"
     },
     "toolchains": [
       {
