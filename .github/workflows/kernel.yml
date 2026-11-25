@@ -72,36 +72,30 @@ jobs:
           sudo apt-get install -y pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl
           sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar llvm g++-multilib bison gperf zlib1g-dev automake
 
+      # 关键修复：恢复 ccache（使用统一的 stable 前缀 key，保证跨次命中）
+      - name: 🚅 Cache ccache
+        if: ${{ env.ENABLE_CCACHE == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ env.KERNEL_NAME }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ env.KERNEL_NAME }}-
+
       - name: 🚄 Setup ccache
         if: ${{ env.ENABLE_CCACHE == 'true' }}
-        id: hash
         run: |
           mkdir -p ${{ env.CCACHE_DIR }}
-          ccache -o compression=false
           ccache -o cache_dir=${{ env.CCACHE_DIR }}
           ccache -o max_size=5G
-          ccache -o compiler_check=content
-          ccache -o hash_dir=false
-          echo "HASH=$(echo -n '${{ toJSON(matrix.config) }}' | openssl dgst -sha1 | awk '{print $2}')" >> $GITHUB_OUTPUT
-
-      - name: 🚅 Cache ccache
-        env:
-          HASH: ${{ steps.hash.outputs.HASH }}
-        if: ${{ env.ENABLE_CCACHE == 'true' }}
-        uses: actions/cache@v3
-        with:
-          key: cache-${{ env.KERNEL_NAME }}-${{env.HASH}}
-          restore-keys: |
-            cache-${{ env.KERNEL_NAME }}-
-          path: ${{ env.CCACHE_DIR }}
-
-      - name: 🔧 Export ccache env
-        if: ${{ env.ENABLE_CCACHE == 'true' }}
-        run: |
+          # 正确设置变量，防止跨 runner 路径不同导致缓存击穿
           echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
-          echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
-          echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
           echo "CCACHE_BASEDIR=${{ github.workspace }}" >> $GITHUB_ENV
+          echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
+          echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
+          echo "CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime,time_macros" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=5G" >> $GITHUB_ENV
+          ccache -s
 
       - name: 🌟 Clone kernel source => (${{ env.KERNEL_REPO }})
         run: |
@@ -123,21 +117,11 @@ jobs:
               wget "$toolchain_url"
               filename="${toolchain_url##*/}"
               case "$filename" in
-                *.zip)
-                  unzip -d $toolchain_name "$filename"
-                  ;;
-                *.tar)
-                  tar xvf "$filename" -C $toolchain_name
-                  ;;
-                *.tar.gz)
-                  tar zxvf "$filename" -C $toolchain_name
-                  ;;
-                *.rar)
-                  unrar x "$filename" $toolchain_name
-                  ;;
-                *)
-                  echo "unknown file type: $filename"
-                  ;;
+                *.zip) unzip -d $toolchain_name "$filename" ;;
+                *.tar) tar xvf "$filename" -C $toolchain_name ;;
+                *.tar.gz) tar zxvf "$filename" -C $toolchain_name ;;
+                *.rar) unrar x "$filename" $toolchain_name ;;
+                *) echo "unknown file type: $filename" ;;
               esac
               rm $filename
               echo "🤔 Download $toolchain_name => ($toolchain_url)"
@@ -196,26 +180,20 @@ jobs:
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
         if: ${{ env.ENABLE_KERNELSU == 'true' }}
         run: |
-          if [ -d "./KernelSU" ]; then
-            rm -rf "./KernelSU"
-          fi
-          if [ -d "./drivers/kernelsu" ]; then
-            rm -rf "./drivers/kernelsu"
-          fi
+          if [ -d "./KernelSU" ]; then rm -rf "./KernelSU"; fi
+          if [ -d "./drivers/kernelsu" ]; then rm -rf "./drivers/kernelsu"; fi
           curl -LSs "https://raw.githubusercontent.com/diudiuyc5200/baka414/main/kernel/setup.sh" | bash
           cat arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
 
       - name: 😋 Setup LXC docker
         working-directory: ${{ env.KERNEL_NAME }}
         env:
-          DEFCONFIG: ${{ env.WORKSPACE }}/${{ env.KERNEL_NAME }}/arch/${{ steps.generate-args.outputs.ARCH }}/configs/${{env.KERNEL_DEFCONFIG_PATH}}
+          DEFCONFIG: ${{ env.WORKSPACE }}/${{ env.KERNEL_NAME }}/arch/${{ steps.generate-args.outputs.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
           ADD_DEFCONFIG: ${{ env.WORKSPACE }}/Kernel/LXC/LXC_defconfig
         if: ${{ env.ENABLE_LXC == 'true' }}
         run: |
           for config in $(cat ${{ env.ADD_DEFCONFIG }})
-          do
-            echo $config >> ${{ env.DEFCONFIG }}
-          done
+          do echo $config >> ${{ env.DEFCONFIG }}; done
           if [ -f kernel/cgroup.c ]; then
             row=$(sed -n -e '/^static int cgroup_add_file/=' kernel/cgroup.c)
             touch /tmp/tmp.txt
@@ -251,9 +229,7 @@ jobs:
           ARCH: ${{ steps.generate-args.outputs.ARCH }}
         if: ${{ env.ENABLE_BBG == 'true' }}
         run: |
-          if [ -d "./Baseband-guard" ]; then
-            rm -rf "./Baseband-guard"
-          fi
+          if [ -d "./Baseband-guard" ]; then rm -rf "./Baseband-guard"; fi
           git clone https://github.com/vc-teahouse/Baseband-guard.git Baseband-guard
           if ! grep -q "CONFIG_BBG=" "arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}"; then
             echo -e "CONFIG_BBG=y" >> arch/${{ env.ARCH }}/configs/${{ env.KERNEL_DEFCONFIG_PATH }}
@@ -273,8 +249,17 @@ jobs:
 
       - name: 📊 ccache stats after build
         if: ${{ env.ENABLE_CCACHE == 'true' }}
-        run: |
-          ccache -s
+        run: ccache -s
+
+      # 编译完成后立即保存 ccache，保证下次构建命中
+      - name: 🚄 Save ccache
+        if: ${{ env.ENABLE_CCACHE == 'true' && success() }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ env.KERNEL_NAME }}-${{ github.sha }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ env.KERNEL_NAME }}-
 
       - name: 💛 Upload Image
         uses: actions/upload-artifact@v4
