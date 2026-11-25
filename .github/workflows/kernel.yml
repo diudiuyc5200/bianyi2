@@ -51,10 +51,15 @@ jobs:
       ENABLE_LXC: ${{ matrix.CONFIG.enableLXC }}
       ENABLE_BBG: ${{ matrix.CONFIG.enableBBG }}
       OUT_DIR: "${{ github.workspace }}/out"
-      # 移植自你的新版本：ccache 核心环境变量
-      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      
+      # 🔥 ccache 核心环境变量（解决绝对路径及工具链哈希问题）
+      CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
+      CCACHE_COMPILERCHECK: "content"
+      CCACHE_SLOPPINESS: "include_file_mtime,include_file_ctime,time_macros"
       CCACHE_HARDLINK: "true"
+      CCACHE_MAXSIZE: 5G
+
     steps:
       - name: 📐 Set swap to 10G
         uses: pierotofy/set-swap-space@master
@@ -75,7 +80,6 @@ jobs:
           sudo apt-get install -y pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl
           sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar llvm g++-multilib bison gperf zlib1g-dev automake
 
-      # 替换为你在新版本中使用的简单稳定的 ccache-action
       - name: 🚅 Cache ccache
         if: ${{ env.ENABLE_CCACHE == 'true' }}
         uses: hendrikmuhs/ccache-action@v1.2
@@ -132,6 +136,7 @@ jobs:
           ARCH=$(echo $PARAMS | jq -r ".ARCH")
           CC=$(echo $PARAMS | jq -r ".CC")
           args="-j${{ env.THREAD }} O=${{ env.OUT_DIR }} ARCH=$ARCH"
+          
           if [ -n "$CC" ]; then
             if [[ "$CC" == *"/"* ]]; then
               CC=${{ env.WORKSPACE }}/$CC
@@ -142,6 +147,7 @@ jobs:
               args="$args CC=$CC"
             fi
           fi
+          
           while read -r externalCommand; do
             key=$(echo "$externalCommand" | cut -d= -f1)
             value=$(echo "$externalCommand" | cut -d= -f2)
@@ -150,6 +156,7 @@ jobs:
             fi
             args="$args $key=$value"
           done < <(jq -r '.externalCommands | to_entries[] | "\(.key)=\(.value)"' <<< "$PARAMS")
+          
           echo "ARCH=$ARCH" >> $GITHUB_OUTPUT
           echo "ARGS=$args" >> $GITHUB_OUTPUT
           echo "🤔 $args"
